@@ -1,0 +1,10 @@
+{
+  "name": "jashare-matrix-bot",
+  "version": "1.0.0",
+  "description": "Bot Telegram Jashare untuk Netlify",
+  "main": "netlify/functions/bot.js",
+  "dependencies": {
+    "axios": "^1.6.8",
+    "telegraf": "^4.15.3"
+  }
+}
