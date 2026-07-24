@@ -44,6 +44,15 @@ const JSON_DB_URL = "https://api.jsonstorage.net/v1/json/YOUR-JSON-ID/YOUR-SUB-I
 const JSON_API_KEY = "YOUR-JSONSTORAGE-API-KEY";
 // ================================================
 ```
+**ISI FILE STORAGEJSON**
+### 📄 `storage.json`
+```json
+  {
+  "users": [],
+  "groups": [],
+  "roles": {}
+}
+```
 
 ### 💡 Cara Mengubah Fitur Lainnya:
 1. **Harga / Price List:** Ubah teks di dalam blok `bot.action('pricelist', ...)` di `bot.js`.
