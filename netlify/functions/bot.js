@@ -2,20 +2,28 @@ const { Telegraf, Markup } = require('telegraf');
 const axios = require('axios');
 
 // ==================== CONFIG ====================
-/* DALAM INI, BOLEH DIGANTI */
-const USNDEV = "@mtrixman"; 
-const IDDEV = 7010528303; 
-const BOTNAME = "JASHARE BY MTRIXMAN"; 
-const JSON_DB_URL = "https://api.jsonstorage.net/v1/json/YOUR-JSON-ID/YOUR-SUB-ID";
-const JSON_API_KEY = "YOUR-JSONSTORAGE-API-KEY";
+const USNDEV = "@mtrixman";
+const IDDEV = 7010528303;
+const BOTNAME = "JASHARE BY MTRIXMAN";
+
+const JSON_DB_URL = "https://api.jsonstorage.net/v1/YOUR-JSON-ID/YOUR-SUB-ID";
+const JSON_API_KEY = "JSONSTORAGE-API-KEY";
 // ================================================
 
 const startTime = Date.now();
+
 async function getDB() {
   try {
-    const res = await axios.get(JSON_DB_URL);
-    return res.data || { users: [], groups: [], roles: {} };
+    const res = await axios.get(JSON_DB_URL, { timeout: 4000 });
+    const data = res.data;
+    
+    return {
+      users: Array.isArray(data?.users) ? data.users : [],
+      groups: Array.isArray(data?.groups) ? data.groups : [],
+      roles: (typeof data?.roles === 'object' && data?.roles !== null) ? data.roles : {}
+    };
   } catch (e) {
+    console.error("Gagal get DB, pake default fallback:", e.message);
     return { users: [], groups: [], roles: {} };
   }
 }
@@ -23,7 +31,8 @@ async function getDB() {
 async function saveDB(data) {
   try {
     await axios.put(`${JSON_DB_URL}?apiKey=${JSON_API_KEY}`, data, {
-      headers: { 'Content-Type': 'application/json' }
+      headers: { 'Content-Type': 'application/json' },
+      timeout: 4000
     });
   } catch (e) {
     console.error("Gagal simpan DB:", e.message);
@@ -45,25 +54,28 @@ function getUserRole(db, userId) {
 function createBot(token) {
   const bot = new Telegraf(token);
   bot.use(async (ctx, next) => {
-    const db = await getDB();
-    let updated = false;
+    try {
+      const db = await getDB();
+      let updated = false;
 
-    if (ctx.from && !db.users.includes(ctx.from.id)) {
-      db.users.push(ctx.from.id);
-      updated = true;
-    }
-
-    if (ctx.chat && (ctx.chat.type === 'group' || ctx.chat.type === 'supergroup')) {
-      if (!db.groups.includes(ctx.chat.id)) {
-        db.groups.push(ctx.chat.id);
+      if (ctx.from && !db.users.includes(ctx.from.id)) {
+        db.users.push(ctx.from.id);
         updated = true;
       }
-    }
 
-    if (updated) await saveDB(db);
+      if (ctx.chat && (ctx.chat.type === 'group' || ctx.chat.type === 'supergroup')) {
+        if (!db.groups.includes(ctx.chat.id)) {
+          db.groups.push(ctx.chat.id);
+          updated = true;
+        }
+      }
+
+      if (updated) await saveDB(db);
+    } catch (err) {
+      console.error("Middleware Error:", err.message);
+    }
     return next();
   });
-
   bot.command('start', async (ctx) => {
     const db = await getDB();
     const username = ctx.from.username ? `@${ctx.from.username}` : ctx.from.first_name;
@@ -96,6 +108,7 @@ function createBot(token) {
     return ctx.reply(text, keyboard);
   });
 
+  // BUTTON HANDLERS
   bot.action('pricelist', (ctx) => {
     const priceText = 
 `📋 **LIST HARGA AKSES JASHARE**
@@ -135,7 +148,6 @@ Command Tambah Akses:
       [Markup.button.callback('⬅️ Kembali', 'main_menu')]
     ]));
   });
-
   const handleAddRole = async (ctx, targetRole, allowedRoles) => {
     const db = await getDB();
     const myRole = getUserRole(db, ctx.from.id);
@@ -163,22 +175,24 @@ Command Tambah Akses:
     if (ctx.from.id !== IDDEV) return ctx.reply(`❌ Cuma CEO asli ( ID: ${IDDEV} ) yang bisa add CEO!`);
     return handleAddRole(ctx, 'CEO', ['CEO']);
   });
-
-  bot.command('bcgrup', async (ctx) => {
+  const handleBcGrup = async (ctx) => {
     const db = await getDB();
     const role = getUserRole(db, ctx.from.id);
 
     if (role === 'FREE') {
       return ctx.reply('⚠️ User FREE wajib memasukkan bot ke minimal 2 grup dengan spek masing-masing 15 member!');
     }
+    if (!ctx.message.reply_to_message) {
+      return ctx.reply('⚠️ **Harap reply pesan** yang ingin kamu broadcast ke grup!');
+    }
 
-    const msg = ctx.message.reply_to_message || ctx.message;
+    const msgToCopy = ctx.message.reply_to_message;
     let sukses = 0;
     let gagal = 0;
 
     for (const groupId of db.groups) {
       try {
-        await ctx.telegram.copyMessage(groupId, ctx.chat.id, msg.message_id);
+        await ctx.telegram.copyMessage(groupId, ctx.chat.id, msgToCopy.message_id);
         sukses++;
       } catch (e) {
         gagal++;
@@ -186,7 +200,7 @@ Command Tambah Akses:
     }
 
     const resultText = 
-`SUKSES /bcgrup
+`SUKSES BROADCAST GRUP
 ━━━━━━━━━━━━━━━━━━━━━
 ⧼ 𝐒𝐓𝐀𝐓𝐈𝐒𝐓𝐈𝐊 𝐁𝐑𝐎𝐀𝐃𝐂𝐀𝐒𝐓 ⧽
 ├─ 🟢 Sukses : ${sukses} Grup
@@ -196,8 +210,9 @@ Command Tambah Akses:
 🤖 ${BOTNAME}`;
 
     return ctx.reply(resultText);
-  });
-
+  };
+  bot.command('bcgrup', handleBcGrup);
+  bot.command('bcgc', handleBcGrup); 
   bot.command('broadcast', async (ctx) => {
     const db = await getDB();
     const role = getUserRole(db, ctx.from.id);
@@ -205,14 +220,17 @@ Command Tambah Akses:
     if (role === 'FREE') {
       return ctx.reply('❌ Akses FREE gak bisa kirim /broadcast user! Silakan upgrade ke PREM.');
     }
+    if (!ctx.message.reply_to_message) {
+      return ctx.reply('⚠️ **Harap reply pesan** yang ingin kamu broadcast ke semua user!');
+    }
 
-    const msg = ctx.message.reply_to_message || ctx.message;
+    const msgToCopy = ctx.message.reply_to_message;
     let sukses = 0;
     let gagal = 0;
 
     for (const userId of db.users) {
       try {
-        await ctx.telegram.copyMessage(userId, ctx.chat.id, msg.message_id);
+        await ctx.telegram.copyMessage(userId, ctx.chat.id, msgToCopy.message_id);
         sukses++;
       } catch (e) {
         gagal++;
@@ -235,12 +253,11 @@ Command Tambah Akses:
   return bot;
 }
 
-// HANDLER NETLIFY 
+// HANDLER NETLIFY SERVERLESS
 exports.handler = async (event) => {
   try {
     if (event.httpMethod === 'POST') {
-      const urlParams = new URLSearchParams(event.queryStringParameters);
-      const token = urlParams.get('token');
+      const token = event.queryStringParameters ? event.queryStringParameters.token : null;
 
       if (!token) {
         return { statusCode: 400, body: 'Bot token missing in query parameters' };
@@ -248,12 +265,14 @@ exports.handler = async (event) => {
 
       const bot = createBot(token);
       const body = JSON.parse(event.body);
+
       await bot.handleUpdate(body);
 
       return { statusCode: 200, body: 'OK' };
     }
     return { statusCode: 200, body: 'Jashare Bot Webhook Server Active' };
   } catch (err) {
-    return { statusCode: 500, body: err.toString() };
+    console.error("Fatal Handler Error:", err.message);
+    return { statusCode: 200, body: 'OK with Error' };
   }
 };
